@@ -594,6 +594,15 @@ window.SB_CONFIG = {
     font-size: 13px; cursor: pointer; font-family: inherit; color: #374151;
   }
   .statsTools button:hover { background: #f5f7fa; }
+  .exFastBtn {
+    margin-left: 8px; display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px; border: 1px solid #dde3ec; background: #fff; border-radius: 8px;
+    font-size: 13px; font-family: inherit; color: #374151; cursor: pointer; white-space: nowrap;
+  }
+  .exFastBtn:hover { background: #f5f7fa; }
+  .exFastBtn .dot { width: 7px; height: 7px; border-radius: 50%; background: #c8cfda; flex: 0 0 auto; }
+  .exFastBtn.on { background: #002985; border-color: #002985; color: #fff; font-weight: 600; }
+  .exFastBtn.on .dot { background: #7ee2a8; box-shadow: 0 0 0 3px rgba(126,226,168,.25); }
   #statsBody {
     flex: 1; overflow: auto; background: #fff; border: 1px solid #e9ecf1;
     border-radius: 12px; margin-bottom: 18px;
@@ -681,6 +690,8 @@ window.SB_CONFIG = {
         <button type="button" data-tab="questions">题目统计</button>
         <button type="button" data-tab="sections">板块正确率</button>
       </div>
+      <button type="button" class="exFastBtn" id="exFastBtn" aria-pressed="false"
+              title="用时少于 5 秒的作答视为蒙答案，不计入统计"><span class="dot"></span>排除蒙答 &lt;5s</button>
       <div class="statsTools" id="statsTools"></div>
     </div>
     <div id="statsBody"></div>
@@ -2752,12 +2763,60 @@ async function sbPushAttempts(rows) {
 }
 
 /* ---------- 统计页 ---------- */
+const FAST_SECONDS = 5;   // 用时少于这个秒数的作答视为蒙答案
 const statsState = {
   tab: 'users',
   users: [],
   qSearch: '', qSort: 'attempts', qAsc: false, qPage: 0, qPageSize: 50, qCount: 0,
-  secUser: '__all__'
+  secUser: '__all__',
+  excludeFast: false,     // 是否排除蒙答（用时 < 5s）
+  fastDropped: null       // 被排除的条数；null = 未知
 };
+try { statsState.excludeFast = localStorage.getItem('pqb_stats_exfast') === '1'; } catch (e) {}
+
+/* 开关状态 → 统计用哪一套视图（xxx / xxx_clean） */
+function statsView(base) { return statsState.excludeFast ? base + '_clean' : base; }
+
+function paintExFastBtn() {
+  const btn = document.getElementById('exFastBtn');
+  if (!btn) return;
+  btn.classList.toggle('on', statsState.excludeFast);
+  btn.setAttribute('aria-pressed', statsState.excludeFast ? 'true' : 'false');
+  btn.title = statsState.excludeFast
+    ? '当前已排除用时少于 ' + FAST_SECONDS + ' 秒的蒙答，点击恢复全部数据'
+    : '用时少于 ' + FAST_SECONDS + ' 秒的作答视为蒙答案，不计入统计';
+}
+
+/* 底部说明里追加"已排除 N 条蒙答" */
+function fastNote() {
+  if (!statsState.excludeFast) return '';
+  if (statsState.fastDropped === null) return ' ｜ 已排除用时 < ' + FAST_SECONDS + ' 秒的蒙答';
+  if (!statsState.fastDropped) return ' ｜ 暂无用时 < ' + FAST_SECONDS + ' 秒的蒙答';
+  return ' ｜ 已排除 ' + statsState.fastDropped + ' 条用时 < ' + FAST_SECONDS + ' 秒的蒙答';
+}
+
+/* 算出"被排除掉多少条"，同一次开关状态内只查一次 */
+async function ensureFastDropped() {
+  if (!statsState.excludeFast) { statsState.fastDropped = 0; return; }
+  if (statsState.fastDropped !== null) return;
+  const [all, clean] = await Promise.all([
+    SB.client.from('v_latest_attempts').select('*', { count: 'exact', head: true }),
+    SB.client.from('v_latest_attempts_clean').select('*', { count: 'exact', head: true })
+  ]);
+  statsState.fastDropped = (!all.error && !clean.error)
+    ? Math.max(0, (all.count || 0) - (clean.count || 0))
+    : null;
+}
+
+/* 读取失败时，若正处于"排除蒙答"模式，多半是云端还没建对应视图 */
+function statsErrMsg(error) {
+  const m = esc((error && error.message) ? error.message : '未知错误');
+  if (statsState.excludeFast && /_clean|schema cache|does not exist|not find/i.test(m)) {
+    return m + '<br><span style="color:#b45309">「排除蒙答」需要云端多几个统计视图：请到 Supabase 的 SQL Editor '
+      + '执行《supabase_排除蒙答_加视图.sql》，再回来刷新。</span>';
+  }
+  return m;
+}
 
 function statsAccCell(acc) {
   if (acc === null || acc === undefined) return '<span style="color:#b6c0cf">—</span>';
@@ -2790,6 +2849,7 @@ function renderStats() {
   const body = document.getElementById('statsBody');
   const tools = document.getElementById('statsTools');
   if (!body) return;
+  paintExFastBtn();
   document.querySelectorAll('.statsTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === statsState.tab));
 
   if (!SB.ready || !SB.client) {
@@ -2829,8 +2889,9 @@ function renderStats() {
 async function loadStatsUsers(silent) {
   const body = document.getElementById('statsBody');
   if (!silent) body.innerHTML = '<div class="statEmpty">加载中…</div>';
-  const { data, error } = await SB.client.from('v_user_summary').select('*');
-  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + esc(error.message) + '<br>请确认已经执行过建表 SQL</div>'; return; }
+  await ensureFastDropped();
+  const { data, error } = await SB.client.from(statsView('v_user_summary')).select('*');
+  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + statsErrMsg(error) + '<br>请确认已经执行过建表 SQL</div>'; return; }
 
   statsState.users = (data || []).slice().sort((a, b) => (b.accuracy === null ? -1 : b.accuracy) - (a.accuracy === null ? -1 : a.accuracy));
   if (silent) return;
@@ -2856,7 +2917,11 @@ async function loadStatsUsers(silent) {
     '<table class="statTable"><thead><tr>' +
     '<th>用户</th><th class="num">已答题数</th><th class="num">答对</th><th>总正确率</th><th class="num">平均每题用时</th><th>最近答题</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<div class="statsPager"><span>共 ' + statsState.users.length + ' 个账号 ｜ 已答题数按「每题最后一次作答」统计，重复做题不会重复计数</span></div>';
+    '<div class="statsPager"><span>共 ' + statsState.users.length + ' 个账号 ｜ '
+      + (statsState.excludeFast
+          ? '按「每题最后一次有效作答（用时 ≥ ' + FAST_SECONDS + ' 秒）」统计'
+          : '已答题数按「每题最后一次作答」统计')
+      + '，重复做题不会重复计数' + fastNote() + '</span></div>';
 }
 
 async function loadStatsQuestions() {
@@ -2864,14 +2929,15 @@ async function loadStatsQuestions() {
   body.innerHTML = '<div class="statEmpty">加载中…</div>';
 
   const st = statsState;
-  let sel = SB.client.from('v_question_stats').select('*', { count: 'exact' });
+  await ensureFastDropped();
+  let sel = SB.client.from(statsView('v_question_stats')).select('*', { count: 'exact' });
   if (st.qSearch) sel = sel.ilike('question_id', '%' + st.qSearch + '%');
   sel = sel.order(st.qSort, { ascending: st.qAsc, nullsFirst: false });
   const from = st.qPage * st.qPageSize;
   sel = sel.range(from, from + st.qPageSize - 1);
 
   const { data, count, error } = await sel;
-  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + esc(error.message) + '</div>'; return; }
+  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + statsErrMsg(error) + '</div>'; return; }
 
   st.qCount = count || 0;
   const list = data || [];
@@ -2904,7 +2970,7 @@ async function loadStatsQuestions() {
     th('difficulty', '难度', true) + th('attempts', '作答人数', true) +
     th('accuracy', '正确率') + th('avg_seconds', '平均用时', true) +
     '</tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<div class="statsPager"><span>共 ' + st.qCount + ' 道题有记录 ｜ 第 ' + (st.qPage + 1) + ' / ' + pages + ' 页</span>' +
+    '<div class="statsPager"><span>共 ' + st.qCount + ' 道题有记录 ｜ 第 ' + (st.qPage + 1) + ' / ' + pages + ' 页' + fastNote() + '</span>' +
     '<span class="spacer"></span>' +
     '<button id="pgPrev"' + (st.qPage <= 0 ? ' disabled' : '') + '>上一页</button>' +
     '<button id="pgNext"' + (st.qPage >= pages - 1 ? ' disabled' : '') + '>下一页</button></div>';
@@ -2924,11 +2990,12 @@ async function loadStatsQuestions() {
 async function loadStatsSections() {
   const body = document.getElementById('statsBody');
   body.innerHTML = '<div class="statEmpty">加载中…</div>';
+  await ensureFastDropped();
 
-  let sel = SB.client.from('v_user_section').select('*');
+  let sel = SB.client.from(statsView('v_user_section')).select('*');
   if (statsState.secUser && statsState.secUser !== '__all__') sel = sel.eq('user_id', statsState.secUser);
   const { data, error } = await sel;
-  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + esc(error.message) + '</div>'; return; }
+  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + statsErrMsg(error) + '</div>'; return; }
 
   let list = data || [];
   if (!list.length) {
@@ -2957,12 +3024,28 @@ async function loadStatsSections() {
     '</tr></thead><tbody>' + rows + '</tbody></table>' +
     '<div class="statsPager"><span>共 ' + list.length + ' 行' +
     (statsState.secUser === '__all__' ? ' ｜ 按正确率从低到高排，最薄弱的板块排在最前' : ' ｜ 按考纲板块顺序排列') +
+    fastNote() +
     '</span></div>';
 }
 
 document.querySelectorAll('.statsTabs button').forEach(b => {
   b.onclick = () => { statsState.tab = b.dataset.tab; renderStats(); };
 });
+
+/* 「排除蒙答 <5s」开关：切换统计口径 */
+(function bindExFast() {
+  const btn = document.getElementById('exFastBtn');
+  if (!btn) return;
+  btn.onclick = () => {
+    statsState.excludeFast = !statsState.excludeFast;
+    try { localStorage.setItem('pqb_stats_exfast', statsState.excludeFast ? '1' : '0'); } catch (e) {}
+    statsState.fastDropped = null;
+    statsState.qPage = 0;
+    paintExFastBtn();
+    renderStats();
+  };
+  paintExFastBtn();
+})();
 
 
 /* ============================================================
