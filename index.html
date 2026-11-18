@@ -6,6 +6,23 @@
 <title>9702题库</title>
 <!-- 站点图标：深蓝圆形底 + 白色 P（内联 SVG，file:// 下同样生效） -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Ccircle%20cx='32'%20cy='32'%20r='32'%20fill='%23002985'/%3E%3Cpath%20fill='%23ffffff'%20fill-rule='evenodd'%20d='M21%2015.4h13.8a11.5%2011.5%200%200%201%200%2023h-7.4v10.1h-6.4zM27.4%2021.8h7.4a5.1%205.1%200%200%201%200%2010.1h-7.4z'/%3E%3C/svg%3E">
+<!-- ============================================================
+     云端配置（Supabase）
+     把 url 和 anonKey 换成你自己项目的值，登录与统计才会启用；
+     两个都留空 = 单机模式（不需要登录，数据只存本机，和以前一样）。
+     详细步骤见同目录的《Supabase上手指南.html》
+     ============================================================ -->
+<script>
+window.SB_CONFIG = {
+  url: "https://xnjmanedgvoknuqtaiae.supabase.co",   // 例：https://abcdefghijkl.supabase.co
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhuam1hbmVkZ3Zva251cXRhaWFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5OTM2MDksImV4cCI6MjExMDU2OTYwOX0.qQnWH39JA5mas6-q7uvvY5JAlP2vac9ZL-Y7bPLXQYw",                   // 例：eyJhbGciOiJIUzI1NiIsInR5cCI6...
+  userDomain: "9702.local",      // 普通用户登录名自动补的后缀（一般不用改）
+  userPassword: "9702user"       // 普通用户统一使用的密码（建议改成你自己的）
+};
+</script>
+<!-- Supabase 官方 JS 库（CDN）。没联网时不会影响单机模式 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%;
@@ -499,16 +516,175 @@
   #imgPreview.show { display: flex; }
   #imgPreview img { max-width: 94vw; max-height: 94vh; background: #fff; border-radius: 6px; }
 
+  /* ============================================================
+     登录门（云端模式）
+     ============================================================ */
+  #authGate {
+    position: fixed; inset: 0; z-index: 9999; display: none;
+    align-items: center; justify-content: center;
+    background: radial-gradient(1200px 600px at 50% -10%, #e6ecfa 0%, #f2f4f7 62%, #edf0f5 100%);
+  }
+  #authGate.show { display: flex; }
+  .authCard {
+    width: 384px; max-width: calc(100vw - 32px); background: #fff; border-radius: 16px;
+    padding: 30px 28px 20px; box-shadow: 0 18px 50px rgba(16,40,80,.14); border: 1px solid #e8ecf3;
+  }
+  .authLogo {
+    width: 56px; height: 56px; border-radius: 50%; background: #002985; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; font-weight: 700; margin: 0 auto 12px;
+  }
+  .authCard h1 { font-size: 19px; text-align: center; margin: 0 0 4px; color: #12305a; letter-spacing: .5px; }
+  .authCard .sub { text-align: center; color: #8b95a5; font-size: 12px; margin: 0 0 18px; }
+  .authTabs { display: flex; background: #f1f4f9; border-radius: 9px; padding: 3px; margin-bottom: 16px; }
+  .authTabs button {
+    flex: 1; border: none; background: transparent; padding: 8px 0; border-radius: 7px;
+    font-size: 13px; color: #5b6576; cursor: pointer; font-family: inherit;
+  }
+  .authTabs button.active { background: #fff; color: #002985; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .authField { margin-bottom: 12px; }
+  .authField label { display: block; font-size: 12px; color: #6b7688; margin-bottom: 5px; }
+  .authField input {
+    width: 100%; padding: 10px 11px; border: 1px solid #dde3ec; border-radius: 8px;
+    font-size: 14px; outline: none; background: #fbfcfe; color: #1f2937;
+  }
+  .authField input:focus { border-color: #8fb0e8; background: #fff; box-shadow: 0 0 0 3px rgba(0,41,133,.06); }
+  #authSubmit {
+    width: 100%; margin-top: 4px; padding: 11px 0; border: none; border-radius: 9px;
+    background: #002985; color: #fff; font-size: 15px; cursor: pointer; font-family: inherit;
+  }
+  #authSubmit:hover { background: #00329f; }
+  #authSubmit:disabled { background: #93a4c4; cursor: default; }
+  #authMsg { min-height: 17px; font-size: 12.5px; color: #c0392b; margin: 2px 0 8px; line-height: 1.55; }
+  #authMsg.ok { color: #2f6f45; }
+  .authFoot { margin: 12px 0 0; text-align: center; font-size: 11.5px; color: #98a2b3; line-height: 1.7; }
+
+  #userChip {
+    display: flex; align-items: center; gap: 8px;
+    margin-left: 8px; padding-left: 12px; border-left: 1px solid #e6eaf1;
+  }
+  #userChip .uname { font-size: 13px; color: #1f3a5f; font-weight: 600; }
+  #userChip .urole { font-size: 11px; color: #64748b; background: #eef2f8; border-radius: 999px; padding: 2px 8px; }
+  #btnLogout {
+    border: 1px solid #e0e6ef; background: #fff; color: #64748b; border-radius: 7px;
+    padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  #btnLogout:hover { background: #fdf3f2; color: #c0392b; border-color: #efc9c4; }
+
+  /* ============================================================
+     统计页（仅管理员）
+     ============================================================ */
+  #screenStats { flex-direction: column; background: #f2f4f7; }
+  .statsWrap { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 18px 28px 0; gap: 12px; }
+  .statsHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .statsHead h2 { margin: 0; font-size: 16px; color: #12305a; font-weight: 700; }
+  .statsTabs { display: flex; gap: 4px; background: #e9edf4; border-radius: 9px; padding: 3px; }
+  .statsTabs button {
+    border: none; background: transparent; padding: 7px 14px; border-radius: 7px;
+    font-size: 13px; color: #5b6576; cursor: pointer; font-family: inherit;
+  }
+  .statsTabs button.active { background: #fff; color: #002985; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .statsTools { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .statsTools input, .statsTools select {
+    padding: 7px 10px; border: 1px solid #dde3ec; border-radius: 8px;
+    font-size: 13px; font-family: inherit; background: #fff; outline: none; color: #1f2937;
+  }
+  .statsTools button {
+    padding: 7px 13px; border: 1px solid #dde3ec; background: #fff; border-radius: 8px;
+    font-size: 13px; cursor: pointer; font-family: inherit; color: #374151;
+  }
+  .statsTools button:hover { background: #f5f7fa; }
+  #statsBody {
+    flex: 1; overflow: auto; background: #fff; border: 1px solid #e9ecf1;
+    border-radius: 12px; margin-bottom: 18px;
+  }
+  .statTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .statTable th, .statTable td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f0f2f6; white-space: nowrap; }
+  .statTable th { position: sticky; top: 0; background: #fafbfd; color: #5b6576; font-weight: 600; z-index: 2; }
+  .statTable th.sortable { cursor: pointer; user-select: none; }
+  .statTable th.sortable:hover { color: #002985; }
+  .statTable th .arrow { color: #b6c0cf; font-size: 10px; margin-left: 3px; }
+  .statTable td.num, .statTable th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .statTable tbody tr:hover { background: #f7faff; }
+  .statTable .mono { font-family: Consolas, "Courier New", monospace; font-size: 12px; color: #33445c; }
+  .accBar { display: inline-flex; align-items: center; gap: 7px; }
+  .accBar .track { width: 60px; height: 6px; border-radius: 999px; background: #eef1f6; overflow: hidden; }
+  .accBar .fill { display: block; height: 100%; border-radius: 999px; background: #2f8f5b; }
+  .accBar .fill.mid { background: #d99a2b; }
+  .accBar .fill.low { background: #c0392b; }
+  .statEmpty { padding: 44px 20px; text-align: center; color: #98a2b3; font-size: 13.5px; line-height: 1.95; }
+  .statsPager {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border-top: 1px solid #f0f2f6; position: sticky; bottom: 0; background: #fff;
+    font-size: 12.5px; color: #64748b;
+  }
+  .statsPager .spacer { flex: 1; }
+  .statsPager button {
+    border: 1px solid #dde3ec; background: #fff; border-radius: 7px; padding: 5px 11px;
+    font-size: 12.5px; cursor: pointer; font-family: inherit; color: #374151;
+  }
+  .statsPager button:disabled { color: #c2c9d4; cursor: default; background: #fafbfd; }
+
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
+
+<!-- 登录门：只有配置了 Supabase 才会显示 -->
+<div id="authGate">
+  <div class="authCard">
+    <div class="authLogo">P</div>
+    <h1>9702 题库</h1>
+    <p class="sub">请登录后使用</p>
+
+    <div class="authTabs">
+      <button type="button" id="tabStudent" class="active">用户登录</button>
+      <button type="button" id="tabAdmin">管理员登录</button>
+    </div>
+
+    <form id="authForm" autocomplete="off">
+      <div class="authField">
+        <label for="authUser">登录名</label>
+        <input id="authUser" type="text" placeholder="输入老师发给你的登录名" spellcheck="false">
+      </div>
+      <div class="authField hidden" id="authPwdWrap">
+        <label for="authPwd">密码</label>
+        <input id="authPwd" type="password" placeholder="管理员密码">
+      </div>
+      <div id="authMsg"></div>
+      <button type="submit" id="authSubmit">登 录</button>
+    </form>
+
+    <p class="authFoot">登录名由老师统一注册，忘记或需要开通请联系老师</p>
+  </div>
+</div>
 
 <div id="topbar">
   <span class="logo">9702题库</span>
   <span class="spacer"></span>
   <button class="tbBtn active" id="navBuild" data-screen="screenCreate">组卷</button>
   <button class="tbBtn" id="navPractice" data-screen="screenTake">练习</button>
+  <button class="tbBtn hidden" id="navStats" data-screen="screenStats">统计</button>
+  <div id="userChip" class="hidden">
+    <span class="uname" id="userName"></span>
+    <span class="urole" id="userRole"></span>
+    <button type="button" id="btnLogout">退出</button>
+  </div>
+</div>
+
+<div class="screen" id="screenStats">
+  <div class="statsWrap">
+    <div class="statsHead">
+      <h2 id="statsTitle">教学统计</h2>
+      <div class="statsTabs">
+        <button type="button" data-tab="users" class="active">用户总览</button>
+        <button type="button" data-tab="questions">题目统计</button>
+        <button type="button" data-tab="sections">板块正确率</button>
+      </div>
+      <div class="statsTools" id="statsTools"></div>
+    </div>
+    <div id="statsBody"></div>
+  </div>
 </div>
 
 <div class="screen active" id="screenCreate">
@@ -660,8 +836,8 @@ const CSV_COLUMNS = ["id","section","topic","type","image","stem",
 
 const LS_LIB = "qbank_lib_v1";
 const LS_VER = "qbank_lib_ver_v1";   // 内置题库版本；和内置版本不一致就用内置数据重建，防止旧缓存盖住新标注
-const LS_PRACTICES = "qbank_practices_v1";
-const LS_PROGRESS = "qbank_progress_v1";
+let LS_PRACTICES = "qbank_practices_v1";    // 云端模式下会追加 @用户名，做到账号之间互不干扰
+let LS_PROGRESS = "qbank_progress_v1";
 
 /* ============================================================
    季节（考季）定义
@@ -1832,7 +2008,8 @@ function startRunner(name, mode, resume) {
     mode = PROGRESS[name].mode || mode;
   }
 
-  runner = { name, mode, ids: validIds, answers, index, elapsed, finished:false };
+  runner = { name, mode, ids: validIds, answers, index, elapsed, finished:false,
+             qTimes: {}, qEnterAt: Date.now(), qEnterQid: null };
 
   document.getElementById('takeList').classList.add('hidden');
   document.getElementById('resultView').classList.remove('active');
@@ -1929,6 +2106,8 @@ function updateAccStat() {
 function renderRunner() {
   clearAutoAdvance();
   const qid = runner.ids[runner.index];
+  /* 单题计时：只有真正换题才重新起表，同一题重绘不打断 */
+  if (runner.qEnterQid !== qid) { runner.qEnterAt = Date.now(); runner.qEnterQid = qid; }
   const q = LIB.find(x => x.id === qid);
   if (!q) { showToast('题目丢失'); return; }
 
@@ -2026,6 +2205,8 @@ function goTo(i) {
 function chooseOption(L) {
   const qid = runner.ids[runner.index];
   runner.answers[qid] = L;
+  /* 记录这道题的停留秒数（从进入本题开始算） */
+  runner.qTimes[qid] = Math.max(1, Math.round((Date.now() - (runner.qEnterAt || Date.now())) / 1000));
   persistProgress();
   if (runner.mode === 'exam') {
     /* 模式2 交卷批改：点选后立即跳到下一题，不等待倒计时 */
@@ -2034,6 +2215,8 @@ function chooseOption(L) {
     renderRunner();
     return;
   }
+  /* 即时判答：点选就上报这一题 */
+  sbPushAttempts([collectAttempt(qid, L, 'instant')]);
   renderRunner();
   scheduleAutoAdvance();
 }
@@ -2105,6 +2288,8 @@ function doSubmit() {
   clearAutoAdvance();
   runner.finished = true;
   persistProgress();
+  /* 交卷后一次性上报全部题目（未作答按错计） */
+  sbPushAttempts(runner.ids.map(id => collectAttempt(id, runner.answers[id] || null, 'exam')));
 
   let right = 0;
   const wrongList = [];
@@ -2330,6 +2515,7 @@ function switchScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
   if (id === 'screenTake') { renderPracticeList(); renderTakeDefault(); }
   if (id === 'screenCreate') { refreshAll(); renderPool(); }
+  if (id === 'screenStats') { renderStats(); }
 }
 
 document.getElementById('btnImportCsv').onclick = () => {
@@ -2359,6 +2545,427 @@ window.addEventListener('beforeunload', () => {
 });
 
 /* ============================================================
+   云端：登录 / 答题上报 / 教学统计（Supabase）
+   未填写 SB_CONFIG.url / anonKey 时不会启用，页面仍是原来的单机模式
+   ============================================================ */
+const SB_CFG = Object.assign(
+  { url: '', anonKey: '', userDomain: '9702.local', userPassword: '' },
+  (window.SB_CONFIG || {})
+);
+
+const SB = { client: null, user: null, profile: null, ready: false };
+
+function sbConfigured() {
+  return !!(String(SB_CFG.url || '').trim() && String(SB_CFG.anonKey || '').trim());
+}
+
+/* ---------- 登录门 ---------- */
+let authMode = 'student';
+
+function setAuthMsg(text, ok) {
+  const el = document.getElementById('authMsg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.toggle('ok', !!ok);
+}
+
+function setAuthMode(m) {
+  authMode = m;
+  document.getElementById('tabStudent').classList.toggle('active', m === 'student');
+  document.getElementById('tabAdmin').classList.toggle('active', m === 'admin');
+  document.getElementById('authPwdWrap').classList.toggle('hidden', m === 'student');
+  document.getElementById('authUser').placeholder = m === 'student' ? '输入老师发给你的登录名' : '管理员登录名';
+  document.getElementById('authPwd').value = '';
+  setAuthMsg('');
+  setTimeout(() => { const u = document.getElementById('authUser'); if (u) u.focus(); }, 40);
+}
+
+function translateAuthError(msg) {
+  const m = String(msg || '');
+  if (/invalid login credentials/i.test(m)) return '登录名或密码不对，或者这个登录名还没有被注册';
+  if (/email not confirmed/i.test(m)) return '这个账号还没确认邮箱：请在 Supabase 后台重新添加，并勾选 Auto Confirm';
+  if (/rate limit|too many requests/i.test(m)) return '尝试次数太多，请等 1 分钟再试';
+  if (/failed to fetch|network ?error|load failed/i.test(m)) return '连不上服务器，请检查网络后重试';
+  return m;
+}
+
+async function doSignIn() {
+  if (!SB.client) { setAuthMsg('Supabase 库没有加载成功，请检查网络后刷新页面'); return; }
+  const name = (document.getElementById('authUser').value || '').trim().toLowerCase();
+  const isAdmin = authMode === 'admin';
+  const pwd = isAdmin ? document.getElementById('authPwd').value : String(SB_CFG.userPassword || '');
+
+  if (!name) { setAuthMsg('请输入登录名'); return; }
+  if (!/^[a-z0-9._-]+$/.test(name)) { setAuthMsg('登录名只能包含字母、数字、点、下划线或短横线'); return; }
+  if (isAdmin && !pwd) { setAuthMsg('请输入管理员密码'); return; }
+  if (!isAdmin && !pwd) { setAuthMsg('管理员还没设置普通用户统一密码，请检查 SB_CONFIG.userPassword'); return; }
+
+  const btn = document.getElementById('authSubmit');
+  btn.disabled = true; btn.textContent = '登录中…'; setAuthMsg('');
+
+  try {
+    const email = name + '@' + String(SB_CFG.userDomain || '9702.local');
+    const { data, error } = await SB.client.auth.signInWithPassword({ email, password: pwd });
+    if (error) throw new Error(translateAuthError(error.message));
+    if (!data || !data.user) throw new Error('登录失败，请稍后重试');
+    await afterSignIn(data.user, isAdmin);
+  } catch (err) {
+    setAuthMsg(err && err.message ? err.message : String(err));
+  } finally {
+    btn.disabled = false; btn.textContent = '登 录';
+  }
+}
+
+async function afterSignIn(user, requireAdmin) {
+  SB.user = user;
+  const { data: prof, error } = await SB.client
+    .from('profiles').select('username, role').eq('id', user.id).maybeSingle();
+  if (error) throw new Error('读取账号信息失败：' + error.message);
+  if (!prof) throw new Error('找不到账号档案（profiles 表里没有这条记录），请联系管理员检查');
+
+  if (requireAdmin && prof.role !== 'admin') {
+    await SB.client.auth.signOut();
+    SB.user = null; SB.profile = null;
+    throw new Error('这个账号不是管理员，请改用「用户登录」进入');
+  }
+
+  SB.profile = prof;
+  SB.ready = true;
+  enterApp(prof);
+}
+
+function enterApp(prof) {
+  document.getElementById('authGate').classList.remove('show');
+  document.getElementById('userChip').classList.remove('hidden');
+  document.getElementById('userName').textContent = prof.username;
+  document.getElementById('userRole').textContent = prof.role === 'admin' ? '管理员' : '用户';
+  document.getElementById('navStats').classList.toggle('hidden', prof.role !== 'admin');
+  applyUserScope(prof.username);
+  switchScreen('screenCreate');
+}
+
+/* 每个账号一份独立的练习 / 进度，避免同一台电脑上互相污染 */
+function applyUserScope(username) {
+  LS_PRACTICES = 'qbank_practices_v1@' + username;
+  LS_PROGRESS = 'qbank_progress_v1@' + username;
+
+  let p = loadLS(LS_PRACTICES, null);
+  if (p === null) {
+    p = {};
+    saveLS(LS_PRACTICES, p);
+    saveLS(LS_PROGRESS, {});
+
+    /* 本机若还有登录前建的练习，问一次要不要搬过来 */
+    const legacy = loadLS('qbank_practices_v1', {}) || {};
+    const legacyNames = Object.keys(legacy);
+    if (legacyNames.length) {
+      setTimeout(() => {
+        confirmModal('导入本地练习',
+          '检测到本机有 ' + legacyNames.length + ' 份登录前创建的练习，是否复制到账号「' + username + '」下？',
+          () => {
+            const cur = loadLS(LS_PRACTICES, {}) || {};
+            const curProg = loadLS(LS_PROGRESS, {}) || {};
+            const legacyProg = loadLS('qbank_progress_v1', {}) || {};
+            legacyNames.forEach(n => {
+              if (!cur[n]) { cur[n] = legacy[n]; if (legacyProg[n]) curProg[n] = legacyProg[n]; }
+            });
+            saveLS(LS_PRACTICES, cur);
+            saveLS(LS_PROGRESS, curProg);
+            PRACTICES = cur; PROGRESS = curProg;
+            renderPracticeList();
+            showToast('已导入 ' + legacyNames.length + ' 份练习');
+          });
+      }, 500);
+    }
+  }
+
+  PRACTICES = p || {};
+  PROGRESS = loadLS(LS_PROGRESS, {});
+  refreshAll();
+  renderPracticeList();
+  renderTakeDefault();
+}
+
+async function bootAuth() {
+  if (!sbConfigured()) return;              /* 单机模式：什么都不做 */
+
+  document.getElementById('authGate').classList.add('show');
+  setAuthMode('student');
+
+  if (!window.supabase) {
+    setAuthMsg('Supabase 库没有加载成功（可能没联网），请检查网络后刷新页面');
+    document.getElementById('authSubmit').disabled = true;
+    return;
+  }
+
+  try {
+    SB.client = window.supabase.createClient(SB_CFG.url, SB_CFG.anonKey);
+  } catch (e) {
+    setAuthMsg('Supabase 配置有误：' + (e && e.message ? e.message : e));
+    return;
+  }
+
+  const { data } = await SB.client.auth.getSession();
+  const session = data && data.session;
+  if (session && session.user) {
+    try { await afterSignIn(session.user, false); }
+    catch (e) { setAuthMsg(e.message || String(e)); }
+  }
+}
+
+document.getElementById('tabStudent').onclick = () => setAuthMode('student');
+document.getElementById('tabAdmin').onclick = () => setAuthMode('admin');
+document.getElementById('authForm').addEventListener('submit', (e) => { e.preventDefault(); doSignIn(); });
+
+document.getElementById('btnLogout').onclick = () => {
+  confirmModal('退出登录', '确定退出吗？退出后需要重新登录才能继续使用题库。', async () => {
+    try { if (runner && !runner.finished) persistProgress(); } catch (e) {}
+    try { if (SB.client) await SB.client.auth.signOut(); } catch (e) {}
+    location.reload();
+  });
+};
+
+/* ---------- 答题记录上报 ---------- */
+function collectAttempt(qid, chosen, mode) {
+  const q = LIB.find(x => x.id === qid) || {};
+  const correct = q.answer ? String(q.answer).trim().toUpperCase() : '';
+  const pick = chosen || null;
+  return {
+    question_id: qid,
+    section: q.section || null,
+    topic: q.topic || null,
+    difficulty: q.difficulty ? (parseInt(q.difficulty, 10) || null) : null,
+    chosen: pick,
+    correct_choice: correct || null,
+    is_correct: !!pick && pick === correct,
+    seconds: (runner && runner.qTimes && runner.qTimes[qid]) || null,
+    mode: mode || (runner ? runner.mode : null),
+    practice_name: runner ? runner.name : null
+  };
+}
+
+async function sbPushAttempts(rows) {
+  if (!SB.ready || !SB.client || !rows || !rows.length) return;
+  const payload = rows.map(r => Object.assign({ user_id: SB.user.id }, r));
+  const { error } = await SB.client.from('attempts').insert(payload);
+  if (error) console.warn('[supabase] 答题记录上报失败：', error.message);
+}
+
+/* ---------- 统计页 ---------- */
+const statsState = {
+  tab: 'users',
+  users: [],
+  qSearch: '', qSort: 'attempts', qAsc: false, qPage: 0, qPageSize: 50, qCount: 0,
+  secUser: '__all__'
+};
+
+function statsAccCell(acc) {
+  if (acc === null || acc === undefined) return '<span style="color:#b6c0cf">—</span>';
+  const v = Number(acc);
+  const cls = v >= 75 ? '' : (v >= 50 ? ' mid' : ' low');
+  return '<span class="accBar"><span class="track"><span class="fill' + cls + '" style="width:' + Math.max(2, Math.min(100, v)) + '%"></span></span><b>' + v.toFixed(1) + '%</b></span>';
+}
+
+function statsSecs(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  const s = Math.round(Number(v));
+  if (!isFinite(s)) return '—';
+  if (s < 60) return s + ' 秒';
+  return Math.floor(s / 60) + ' 分 ' + String(s % 60).padStart(2, '0') + ' 秒';
+}
+
+function statsTimeAgo(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  if (!isFinite(t)) return '—';
+  const d = Math.floor((Date.now() - t) / 1000);
+  if (d < 60) return '刚刚';
+  if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+  if (d < 86400) return Math.floor(d / 3600) + ' 小时前';
+  if (d < 86400 * 30) return Math.floor(d / 86400) + ' 天前';
+  return new Date(t).toLocaleDateString('zh-CN');
+}
+
+function renderStats() {
+  const body = document.getElementById('statsBody');
+  const tools = document.getElementById('statsTools');
+  if (!body) return;
+  document.querySelectorAll('.statsTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === statsState.tab));
+
+  if (!SB.ready || !SB.client) {
+    tools.innerHTML = '';
+    body.innerHTML = '<div class="statEmpty">还没有连接云端<br>请先在 index.html 顶部填写 Supabase 的 url 和 anonKey</div>';
+    return;
+  }
+
+  if (statsState.tab === 'users') {
+    tools.innerHTML = '<button id="statsRefresh">刷新</button>';
+    document.getElementById('statsRefresh').onclick = loadStatsUsers;
+    loadStatsUsers();
+  } else if (statsState.tab === 'questions') {
+    tools.innerHTML =
+      '<input id="qSearch" placeholder="搜索题号，例如 q24" value="' + esc(statsState.qSearch) + '" style="width:180px">' +
+      '<button id="statsRefresh">刷新</button>';
+    const si = document.getElementById('qSearch');
+    si.oninput = () => { statsState.qSearch = si.value.trim(); statsState.qPage = 0; loadStatsQuestions(); };
+    document.getElementById('statsRefresh').onclick = loadStatsQuestions;
+    loadStatsQuestions();
+  } else {
+    tools.innerHTML = '<select id="secUser"><option value="__all__">全部用户</option></select><button id="statsRefresh">刷新</button>';
+    const sel = document.getElementById('secUser');
+    sel.onchange = () => { statsState.secUser = sel.value; loadStatsSections(); };
+    document.getElementById('statsRefresh').onclick = loadStatsSections;
+    loadStatsUsers(true).then(() => {
+      const opts = statsState.users.slice()
+        .sort((a, b) => String(a.username).localeCompare(String(b.username)))
+        .map(u => '<option value="' + esc(u.id) + '"' + (statsState.secUser === u.id ? ' selected' : '') + '>' + esc(u.username) + '</option>')
+        .join('');
+      sel.innerHTML = '<option value="__all__"' + (statsState.secUser === '__all__' ? ' selected' : '') + '>全部用户</option>' + opts;
+    });
+    loadStatsSections();
+  }
+}
+
+async function loadStatsUsers(silent) {
+  const body = document.getElementById('statsBody');
+  if (!silent) body.innerHTML = '<div class="statEmpty">加载中…</div>';
+  const { data, error } = await SB.client.from('v_user_summary').select('*');
+  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + esc(error.message) + '<br>请确认已经执行过建表 SQL</div>'; return; }
+
+  statsState.users = (data || []).slice().sort((a, b) => (b.accuracy === null ? -1 : b.accuracy) - (a.accuracy === null ? -1 : a.accuracy));
+  if (silent) return;
+
+  if (!statsState.users.length) {
+    body.innerHTML = '<div class="statEmpty">还没有任何账号<br>请在 Supabase 后台的 Authentication → Users 里添加</div>';
+    return;
+  }
+
+  const rows = statsState.users.map(u => {
+    const isAdminUser = u.role === 'admin';
+    return '<tr>' +
+      '<td><b>' + esc(u.username) + '</b>' + (isAdminUser ? ' <span class="urole" style="display:inline-block;margin-left:4px">管理员</span>' : '') + '</td>' +
+      '<td class="num">' + (u.answered || 0) + '</td>' +
+      '<td class="num">' + (u.correct || 0) + '</td>' +
+      '<td>' + statsAccCell(u.accuracy) + '</td>' +
+      '<td class="num">' + statsSecs(u.avg_seconds) + '</td>' +
+      '<td>' + statsTimeAgo(u.last_at) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  body.innerHTML =
+    '<table class="statTable"><thead><tr>' +
+    '<th>用户</th><th class="num">已答题数</th><th class="num">答对</th><th>总正确率</th><th class="num">平均每题用时</th><th>最近答题</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<div class="statsPager"><span>共 ' + statsState.users.length + ' 个账号 ｜ 已答题数按「每题最后一次作答」统计，重复做题不会重复计数</span></div>';
+}
+
+async function loadStatsQuestions() {
+  const body = document.getElementById('statsBody');
+  body.innerHTML = '<div class="statEmpty">加载中…</div>';
+
+  const st = statsState;
+  let sel = SB.client.from('v_question_stats').select('*', { count: 'exact' });
+  if (st.qSearch) sel = sel.ilike('question_id', '%' + st.qSearch + '%');
+  sel = sel.order(st.qSort, { ascending: st.qAsc, nullsFirst: false });
+  const from = st.qPage * st.qPageSize;
+  sel = sel.range(from, from + st.qPageSize - 1);
+
+  const { data, count, error } = await sel;
+  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + esc(error.message) + '</div>'; return; }
+
+  st.qCount = count || 0;
+  const list = data || [];
+
+  if (!list.length) {
+    body.innerHTML = '<div class="statEmpty">' + (st.qSearch ? '没有匹配「' + esc(st.qSearch) + '」的题目' : '还没有答题记录') + '</div>';
+    return;
+  }
+
+  const arrow = k => st.qSort === k ? '<span class="arrow">' + (st.qAsc ? '▲' : '▼') + '</span>' : '';
+  const th = (k, label, num) => '<th class="sortable' + (num ? ' num' : '') + '" data-sort="' + k + '">' + label + arrow(k) + '</th>';
+
+  const rows = list.map(q => {
+    const secName = q.section ? secFull(q.section) : '—';
+    return '<tr>' +
+      '<td class="mono">' + esc(q.question_id) + '</td>' +
+      '<td>' + esc(secName) + '</td>' +
+      '<td>' + esc(q.topic || '—') + '</td>' +
+      '<td class="num">' + (q.difficulty || '—') + '</td>' +
+      '<td class="num">' + (q.attempts || 0) + '</td>' +
+      '<td>' + statsAccCell(q.accuracy) + '</td>' +
+      '<td class="num">' + statsSecs(q.avg_seconds) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  const pages = Math.max(1, Math.ceil(st.qCount / st.qPageSize));
+  body.innerHTML =
+    '<table class="statTable"><thead><tr>' +
+    th('question_id', '题号') + '<th>板块</th><th>知识点</th>' +
+    th('difficulty', '难度', true) + th('attempts', '作答人数', true) +
+    th('accuracy', '正确率') + th('avg_seconds', '平均用时', true) +
+    '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<div class="statsPager"><span>共 ' + st.qCount + ' 道题有记录 ｜ 第 ' + (st.qPage + 1) + ' / ' + pages + ' 页</span>' +
+    '<span class="spacer"></span>' +
+    '<button id="pgPrev"' + (st.qPage <= 0 ? ' disabled' : '') + '>上一页</button>' +
+    '<button id="pgNext"' + (st.qPage >= pages - 1 ? ' disabled' : '') + '>下一页</button></div>';
+
+  body.querySelectorAll('th.sortable').forEach(h => {
+    h.onclick = () => {
+      const k = h.dataset.sort;
+      if (statsState.qSort === k) statsState.qAsc = !statsState.qAsc;
+      else { statsState.qSort = k; statsState.qAsc = (k === 'question_id'); }
+      loadStatsQuestions();
+    };
+  });
+  const prev = document.getElementById('pgPrev'); if (prev) prev.onclick = () => { statsState.qPage--; loadStatsQuestions(); };
+  const next = document.getElementById('pgNext'); if (next) next.onclick = () => { statsState.qPage++; loadStatsQuestions(); };
+}
+
+async function loadStatsSections() {
+  const body = document.getElementById('statsBody');
+  body.innerHTML = '<div class="statEmpty">加载中…</div>';
+
+  let sel = SB.client.from('v_user_section').select('*');
+  if (statsState.secUser && statsState.secUser !== '__all__') sel = sel.eq('user_id', statsState.secUser);
+  const { data, error } = await sel;
+  if (error) { body.innerHTML = '<div class="statEmpty">读取失败：' + esc(error.message) + '</div>'; return; }
+
+  let list = data || [];
+  if (!list.length) {
+    body.innerHTML = '<div class="statEmpty">还没有答题记录</div>';
+    return;
+  }
+
+  if (statsState.secUser === '__all__') {
+    list = list.slice().sort((a, b) => (a.accuracy === null ? 999 : a.accuracy) - (b.accuracy === null ? 999 : b.accuracy));
+  } else {
+    list = list.slice().sort((a, b) => secOrder(a.section) - secOrder(b.section));
+  }
+
+  const rows = list.map(r => '<tr>' +
+    '<td><b>' + esc(r.username) + '</b></td>' +
+    '<td>' + esc(secFull(r.section)) + '</td>' +
+    '<td class="num">' + (r.answered || 0) + '</td>' +
+    '<td class="num">' + (r.correct || 0) + '</td>' +
+    '<td>' + statsAccCell(r.accuracy) + '</td>' +
+    '<td class="num">' + statsSecs(r.avg_seconds) + '</td>' +
+    '</tr>').join('');
+
+  body.innerHTML =
+    '<table class="statTable"><thead><tr>' +
+    '<th>用户</th><th>板块</th><th class="num">已答</th><th class="num">答对</th><th>正确率</th><th class="num">平均用时</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<div class="statsPager"><span>共 ' + list.length + ' 行' +
+    (statsState.secUser === '__all__' ? ' ｜ 按正确率从低到高排，最薄弱的板块排在最前' : ' ｜ 按考纲板块顺序排列') +
+    '</span></div>';
+}
+
+document.querySelectorAll('.statsTabs button').forEach(b => {
+  b.onclick = () => { statsState.tab = b.dataset.tab; renderStats(); };
+});
+
+
+/* ============================================================
    启动
    ============================================================ */
 /* ==== EMBEDDED_LIB_START ==== */
@@ -2367,6 +2974,8 @@ const EMBEDDED_CSV = "id,section,topic,type,image,stem,optionA,optionB,optionC,o
 /* ==== EMBEDDED_LIB_END ==== */
 
 initData();
+/* 填了 Supabase 配置就先过登录门；没填则保持单机模式 */
+bootAuth();
 </script>
 </body>
 </html>
